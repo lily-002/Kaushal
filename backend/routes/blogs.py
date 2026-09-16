@@ -1,54 +1,76 @@
-from fastapi import APIRouter, HTTPException
-from typing import List
-import os
-from motor.motor_asyncio import AsyncIOMotorClient
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from database import get_db
+from models.orm import Blog
 
 router = APIRouter()
 
-# MongoDB connection
-MONGO_URL = os.environ.get('MONGO_URL', 'mongodb://localhost:27017')
-client = AsyncIOMotorClient(MONGO_URL)
-db = client.kaushal_db
+
+def _serialize(blog: Blog) -> dict:
+    return {
+        "id": blog.id,
+        "slug": blog.slug,
+        "title": blog.title,
+        "excerpt": blog.excerpt,
+        "author": blog.author,
+        "date": blog.date,
+        "readTime": blog.read_time,
+        "category": blog.category,
+        "image": blog.image,
+        "content": blog.content,
+    }
+
 
 @router.get("/blogs")
-async def get_all_blogs():
+async def get_all_blogs(db: AsyncSession = Depends(get_db)):
     """Get all blog posts"""
     try:
-        blogs = await db.blogs.find({}, {"_id": 0}).sort("id", -1).to_list(100)
-        return {"success": True, "blogs": blogs}
+        result = await db.execute(select(Blog).order_by(Blog.id.desc()))
+        blogs = result.scalars().all()
+        return {"success": True, "blogs": [_serialize(b) for b in blogs]}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @router.get("/blogs/{slug}")
-async def get_blog_by_slug(slug: str):
+async def get_blog_by_slug(slug: str, db: AsyncSession = Depends(get_db)):
     """Get a single blog post by slug"""
     try:
-        blog = await db.blogs.find_one({"slug": slug}, {"_id": 0})
+        result = await db.execute(select(Blog).where(Blog.slug == slug))
+        blog = result.scalar_one_or_none()
         if not blog:
             raise HTTPException(status_code=404, detail="Blog post not found")
-        return {"success": True, "blog": blog}
+        return {"success": True, "blog": _serialize(blog)}
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @router.get("/blogs/category/{category}")
-async def get_blogs_by_category(category: str):
+async def get_blogs_by_category(category: str, db: AsyncSession = Depends(get_db)):
     """Get blog posts by category"""
     try:
-        if category.lower() == "all":
-            blogs = await db.blogs.find({}, {"_id": 0}).sort("id", -1).to_list(100)
-        else:
-            blogs = await db.blogs.find({"category": category}, {"_id": 0}).sort("id", -1).to_list(100)
-        return {"success": True, "blogs": blogs}
+        stmt = select(Blog).order_by(Blog.id.desc())
+        if category.lower() != "all":
+            stmt = stmt.where(Blog.category == category)
+        result = await db.execute(stmt)
+        blogs = result.scalars().all()
+        return {"success": True, "blogs": [_serialize(b) for b in blogs]}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @router.get("/blogs/related/{slug}")
-async def get_related_blogs(slug: str, limit: int = 3):
+async def get_related_blogs(slug: str, limit: int = 3, db: AsyncSession = Depends(get_db)):
     """Get related blog posts (excluding current one)"""
     try:
-        blogs = await db.blogs.find({"slug": {"$ne": slug}}, {"_id": 0}).limit(limit).to_list(limit)
-        return {"success": True, "blogs": blogs}
+        result = await db.execute(
+            select(Blog).where(Blog.slug != slug).limit(limit)
+        )
+        blogs = result.scalars().all()
+        return {"success": True, "blogs": [_serialize(b) for b in blogs]}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

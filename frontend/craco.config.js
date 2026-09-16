@@ -68,6 +68,20 @@ const webpackConfig = {
         webpackConfig.plugins.push(healthPluginInstance);
       }
 
+      // Newer webpack versions default .js files to the CommonJS-only
+      // "javascript/dynamic" module type when the nearest package.json has
+      // no "type" field, which rejects `import`/`export` syntax. CRA5's
+      // babel-loader rules predate this default and never override it, so
+      // force it back to "javascript/auto" (webpack handles ESM natively).
+      for (const rule of webpackConfig.module.rules) {
+        if (!rule.oneOf) continue;
+        for (const oneOfRule of rule.oneOf) {
+          if (typeof oneOfRule.loader === 'string' && oneOfRule.loader.includes('babel-loader')) {
+            oneOfRule.type = 'javascript/auto';
+          }
+        }
+      }
+
       return webpackConfig;
     },
   },

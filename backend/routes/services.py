@@ -1,30 +1,45 @@
-from fastapi import APIRouter, HTTPException
-from motor.motor_asyncio import AsyncIOMotorClient
-import os
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from database import get_db
+from models.orm import Service
 
 router = APIRouter()
 
-MONGO_URL = os.environ.get('MONGO_URL', 'mongodb://localhost:27017')
-client = AsyncIOMotorClient(MONGO_URL)
-db = client.kaushal_db
+
+def _serialize(service: Service) -> dict:
+    return {
+        "id": service.id,
+        "title": service.title,
+        "subtitle": service.subtitle,
+        "description": service.description,
+        "icon": service.icon,
+        "videoUrl": service.video_url,
+        "fullDescription": service.full_description,
+    }
+
 
 @router.get("/services")
-async def get_all_services():
+async def get_all_services(db: AsyncSession = Depends(get_db)):
     """Get all services"""
     try:
-        services = await db.services.find({}, {"_id": 0}).to_list(100)
-        return {"success": True, "services": services}
+        result = await db.execute(select(Service).order_by(Service.id))
+        services = result.scalars().all()
+        return {"success": True, "services": [_serialize(s) for s in services]}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @router.get("/services/{service_id}")
-async def get_service_by_id(service_id: str):
+async def get_service_by_id(service_id: str, db: AsyncSession = Depends(get_db)):
     """Get a single service by ID"""
     try:
-        service = await db.services.find_one({"id": service_id}, {"_id": 0})
+        result = await db.execute(select(Service).where(Service.id == service_id))
+        service = result.scalar_one_or_none()
         if not service:
             raise HTTPException(status_code=404, detail="Service not found")
-        return {"success": True, "service": service}
+        return {"success": True, "service": _serialize(service)}
     except HTTPException:
         raise
     except Exception as e:

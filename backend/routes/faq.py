@@ -1,18 +1,22 @@
-from fastapi import APIRouter, HTTPException
-from motor.motor_asyncio import AsyncIOMotorClient
-import os
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from database import get_db
+from models.orm import FAQ
 
 router = APIRouter()
 
-MONGO_URL = os.environ.get('MONGO_URL', 'mongodb://localhost:27017')
-client = AsyncIOMotorClient(MONGO_URL)
-db = client.kaushal_db
 
 @router.get("/faqs")
-async def get_faqs():
+async def get_faqs(db: AsyncSession = Depends(get_db)):
     """Get all FAQs"""
     try:
-        faqs = await db.faqs.find({}, {"_id": 0}).to_list(100)
-        return {"success": True, "faqs": faqs}
+        result = await db.execute(select(FAQ).order_by(FAQ.id))
+        faqs = result.scalars().all()
+        return {
+            "success": True,
+            "faqs": [{"id": f.id, "question": f.question, "answer": f.answer} for f in faqs],
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

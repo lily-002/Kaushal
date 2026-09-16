@@ -1,18 +1,25 @@
-from fastapi import APIRouter, HTTPException
-from motor.motor_asyncio import AsyncIOMotorClient
-import os
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from database import get_db
+from models.orm import TeamMember
 
 router = APIRouter()
 
-MONGO_URL = os.environ.get('MONGO_URL', 'mongodb://localhost:27017')
-client = AsyncIOMotorClient(MONGO_URL)
-db = client.kaushal_db
 
 @router.get("/team")
-async def get_team_members():
+async def get_team_members(db: AsyncSession = Depends(get_db)):
     """Get all team members"""
     try:
-        team = await db.team.find({}, {"_id": 0}).to_list(100)
-        return {"success": True, "team": team}
+        result = await db.execute(select(TeamMember).order_by(TeamMember.id))
+        team = result.scalars().all()
+        return {
+            "success": True,
+            "team": [
+                {"id": t.id, "name": t.name, "role": t.role, "description": t.description, "image": t.image}
+                for t in team
+            ],
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

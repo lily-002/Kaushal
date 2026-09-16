@@ -1,18 +1,32 @@
-from fastapi import APIRouter, HTTPException
-from motor.motor_asyncio import AsyncIOMotorClient
-import os
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from database import get_db
+from models.orm import Testimonial
 
 router = APIRouter()
 
-MONGO_URL = os.environ.get('MONGO_URL', 'mongodb://localhost:27017')
-client = AsyncIOMotorClient(MONGO_URL)
-db = client.kaushal_db
 
 @router.get("/testimonials")
-async def get_testimonials():
+async def get_testimonials(db: AsyncSession = Depends(get_db)):
     """Get all testimonials"""
     try:
-        testimonials = await db.testimonials.find({}, {"_id": 0}).to_list(100)
-        return {"success": True, "testimonials": testimonials}
+        result = await db.execute(select(Testimonial).order_by(Testimonial.id))
+        testimonials = result.scalars().all()
+        return {
+            "success": True,
+            "testimonials": [
+                {
+                    "id": t.id,
+                    "name": t.name,
+                    "role": t.role,
+                    "content": t.content,
+                    "rating": t.rating,
+                    "image": t.image,
+                }
+                for t in testimonials
+            ],
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
